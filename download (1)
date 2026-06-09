@@ -1,0 +1,10 @@
+.env
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.log
+domain_monitor.db
+domain_monitor.db-shm
+domain_monitor.db-wal
+.pytest_cache/
