@@ -15,6 +15,8 @@ Varsayılan kontrol aralığı 5 dakikadır.
 - Domainleri SQLite veritabanında saklar.
 - Kayıtlı domainleri her 5 dakikada bir BTK sorgusu ile kontrol eder.
 - Sadece durum değiştiğinde bildirim gönderir.
+- Komut handlerları `python-telegram-bot` v20+ ile uyumlu şekilde `block=False` çalışır.
+- Uzun süren BTK/OCR sorguları komut cevaplarını kilitlemez.
 - `BOT_TOKEN` önce Railway environment variable üzerinden, yoksa `.env` dosyasından okunur.
 - Railway üzerinde Dockerfile ile çalışmaya hazırdır.
 
@@ -35,6 +37,18 @@ Bildirim yalnızca `ENGEL VAR` ile `ENGEL YOK` arasında durum değişirse gönd
 - Railway'de tek instance/replica çalıştırın. Birden fazla instance aynı domainleri kontrol ederse çift bildirim gönderebilir.
 - Railway'de kalıcı SQLite için volume kullanın. Volume yoksa deploy/restart sonrası veritabanı kaybolabilir.
 
+## Environment Variables
+
+```env
+BOT_TOKEN=BOTFATHER_TOKENINIZ
+DATABASE_PATH=domain_monitor.db
+CHECK_INTERVAL_SECONDS=300
+BTK_QUERY_TIMEOUT_SECONDS=120
+MAX_CONCURRENT_CHECKS=3
+```
+
+Railway'de en az `BOT_TOKEN` eklenmelidir.
+
 ## Kurulum
 
 Python 3.10 veya daha yeni bir sürüm gerekir.
@@ -46,6 +60,7 @@ python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
+python main.py
 ```
 
 Windows PowerShell:
@@ -56,19 +71,6 @@ python -m venv .venv
 pip install -r requirements.txt
 Copy-Item .env.example .env
 notepad .env
-```
-
-`.env` dosyasını doldurun:
-
-```env
-BOT_TOKEN=BOTFATHER_TOKENINIZ
-DATABASE_PATH=domain_monitor.db
-CHECK_INTERVAL_SECONDS=300
-```
-
-Botu çalıştırın:
-
-```bash
 python main.py
 ```
 
@@ -77,20 +79,18 @@ python main.py
 1. Projeyi GitHub'a yükleyin.
 2. Railway'de yeni proje oluşturun.
 3. GitHub reposunu Railway'e bağlayın.
-4. Railway Variables bölümüne şunu ekleyin:
+4. Railway Variables bölümüne `BOT_TOKEN` ekleyin.
+5. Kalıcı SQLite için Railway volume ekleyip `/data` yoluna mount edin.
+
+Railway için önerilen değişkenler:
 
 ```env
 BOT_TOKEN=BOTFATHER_TOKENINIZ
-```
-
-İsteğe bağlı değişkenler:
-
-```env
-CHECK_INTERVAL_SECONDS=300
 DATABASE_PATH=/data/domain_monitor.db
+CHECK_INTERVAL_SECONDS=300
+BTK_QUERY_TIMEOUT_SECONDS=120
+MAX_CONCURRENT_CHECKS=3
 ```
-
-Railway'de volume ekleyip `/data` yoluna mount edin. Dockerfile varsayılan olarak veritabanını `/data/domain_monitor.db` konumunda tutar.
 
 ## Komutlar
 
@@ -100,10 +100,10 @@ Botu başlatır ve mevcut sohbeti kayıt eder.
 
 ### `/add domain.com`
 
-Domaini BTK/ESB takip listesine ekler ve hemen ilk sorguyu yapar.
+Domaini BTK/ESB takip listesine ekler ve kullanıcıya hemen onay mesajı gönderir. İlk BTK sorgusu arka planda yapılır; sonuç gelince ayrıca mesaj gönderilir.
 
 ```text
-/add example.com
+/add betinebet.com
 ```
 
 URL girerseniz domain otomatik normalize edilir:
@@ -137,6 +137,16 @@ Domain için hemen BTK/ESB sorgusu yapar. Bu komut domaini listeye eklemez.
 ### `/help`
 
 Komut listesini gösterir.
+
+## Loglama
+
+Her komut geldiğinde loga şu formatta kayıt düşer:
+
+```text
+command received: /add chat_id=... user_id=...
+```
+
+Beklenmeyen komut hatalarında kullanıcıya kısa hata mesajı gönderilir.
 
 ## Veritabanı
 
