@@ -43,7 +43,7 @@ Bildirim yalnızca `ENGEL VAR` ile `ENGEL YOK` arasında durum değişirse gönd
 BOT_TOKEN=BOTFATHER_TOKENINIZ
 DATABASE_PATH=domain_monitor.db
 CHECK_INTERVAL_SECONDS=300
-BTK_QUERY_TIMEOUT_SECONDS=120
+BTK_QUERY_TIMEOUT_SECONDS=300
 MAX_CONCURRENT_CHECKS=3
 ```
 
@@ -88,7 +88,7 @@ Railway için önerilen değişkenler:
 BOT_TOKEN=BOTFATHER_TOKENINIZ
 DATABASE_PATH=/data/domain_monitor.db
 CHECK_INTERVAL_SECONDS=300
-BTK_QUERY_TIMEOUT_SECONDS=120
+BTK_QUERY_TIMEOUT_SECONDS=300
 MAX_CONCURRENT_CHECKS=3
 ```
 
@@ -128,7 +128,7 @@ Kayıtlı domainleri, son BTK/ESB durumlarını ve son kontrol zamanını listel
 
 ### `/check domain.com`
 
-Domain için hemen BTK/ESB sorgusu yapar. Bu komut domaini listeye eklemez.
+Domain için hemen manuel BTK/ESB sorgusu yapar. Bu komut domaini listeye eklemez; zaman aşımı olursa daha sonra aynı komutla tekrar kontrol edebilirsiniz.
 
 ```text
 /check example.com

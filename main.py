@@ -23,7 +23,7 @@ else:
 BASE_DIR = Path(__file__).resolve().parent
 DATABASE_PATH = Path(os.getenv("DATABASE_PATH", BASE_DIR / "domain_monitor.db"))
 CHECK_INTERVAL_SECONDS = int(os.getenv("CHECK_INTERVAL_SECONDS", "300"))
-BTK_QUERY_TIMEOUT_SECONDS = int(os.getenv("BTK_QUERY_TIMEOUT_SECONDS", "120"))
+BTK_QUERY_TIMEOUT_SECONDS = int(os.getenv("BTK_QUERY_TIMEOUT_SECONDS", "300"))
 MAX_CONCURRENT_CHECKS = int(os.getenv("MAX_CONCURRENT_CHECKS", "3"))
 
 STATUS_BLOCKED = "BLOCKED"
@@ -254,7 +254,7 @@ async def check_domain(domain: str) -> tuple[str, str | None]:
         return status, detail[:1000]
     except asyncio.TimeoutError:
         logger.warning("BTK query timeout for %s", domain)
-        return STATUS_UNKNOWN, f"BTK sorgusu {BTK_QUERY_TIMEOUT_SECONDS} saniye içinde tamamlanmadı."
+        return STATUS_UNKNOWN, "BTK sorgusu zaman aşımına uğradı, bir sonraki 5 dakikalık kontrolde tekrar denenecek."
     except Exception as error:
         logger.exception("BTK query failed for %s", domain)
         return STATUS_UNKNOWN, str(error)[:500]

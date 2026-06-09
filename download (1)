@@ -7,4 +7,6 @@ __pycache__/
 domain_monitor.db
 domain_monitor.db-shm
 domain_monitor.db-wal
+.git/
+.gitignore
 .pytest_cache/
