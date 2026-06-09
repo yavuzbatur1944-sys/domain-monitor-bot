@@ -1,6 +1,6 @@
-# Domain Monitor Telegram Bot
+# BTK/ESB Domain Monitor Telegram Bot
 
-Bu bot, kayıtlı domainleri belirli aralıklarla kontrol eder. Domain erişilemez hale gelirse veya tekrar erişilebilir olursa Telegram üzerinden bildirim gönderir.
+Bu bot, kayıtlı domainler için BTK/ESB erişim engeli durumunu takip eder. Domain için erişim engeli kararı görülürse veya daha önce görülen engel kalkarsa Telegram üzerinden bildirim gönderir.
 
 Varsayılan kontrol aralığı 5 dakikadır.
 
@@ -13,28 +13,33 @@ Varsayılan kontrol aralığı 5 dakikadır.
 - `/check domain.com`
 - `/help`
 - Domainleri SQLite veritabanında saklar.
-- Kayıtlı domainleri her 5 dakikada bir kontrol eder.
+- Kayıtlı domainleri her 5 dakikada bir BTK sorgusu ile kontrol eder.
 - Sadece durum değiştiğinde bildirim gönderir.
 - `BOT_TOKEN` önce Railway environment variable üzerinden, yoksa `.env` dosyasından okunur.
 - Railway üzerinde Dockerfile ile çalışmaya hazırdır.
 
-## Önemli Not
+## Nasıl Çalışır?
 
-Bot domainleri çalıştığı sunucudan kontrol eder. Railway üzerinde çalışıyorsa kontrol Railway ağından yapılır. Bir domain sadece Türkiye içinden engelliyse ama Railway lokasyonundan erişilebiliyorsa bot bunu `OK` görebilir.
+Bot domain erişilebilirliğini HTTP ile test etmez. Bunun yerine BTK sorgu sonucunu okur ve şu durumları saklar:
 
-Bot şu durumları erişim problemi olarak kabul eder:
+- `ENGEL VAR`: BTK sorgusunda erişim engeli/tedbir/mahkeme kararı benzeri karar metni bulundu.
+- `ENGEL YOK`: BTK sorgusunda uygulanmış karar bulunmadı.
+- `BILINMIYOR`: BTK sorgusu yapılamadı veya sonuç yorumlanamadı.
 
-- DNS veya bağlantı hatası
-- Timeout
-- HTTP 5xx
-- HTTP 451
-- HTTPS ve HTTP denemelerinin ikisinin de başarısız olması
+Bildirim yalnızca `ENGEL VAR` ile `ENGEL YOK` arasında durum değişirse gönderilir. `BILINMIYOR` geçici sorgu hatası kabul edilir ve engel kalktı/engel geldi bildirimi üretmez.
 
-HTTP 404 gibi 4xx yanıtlar genelde domainin erişilebilir olduğunu gösterdiği için `OK` kabul edilir. `451` bunun istisnasıdır.
+## Önemli Notlar
+
+- BTK sorgu sayfası doğrulama/OCR akışı içerdiği için proje `BTKSorgu` Python paketini kullanır.
+- Docker imajı içinde `tesseract-ocr` kuruludur.
+- Railway'de tek instance/replica çalıştırın. Birden fazla instance aynı domainleri kontrol ederse çift bildirim gönderebilir.
+- Railway'de kalıcı SQLite için volume kullanın. Volume yoksa deploy/restart sonrası veritabanı kaybolabilir.
 
 ## Kurulum
 
 Python 3.10 veya daha yeni bir sürüm gerekir.
+
+Linux/macOS:
 
 ```bash
 python -m venv .venv
@@ -43,7 +48,7 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-Windows PowerShell için:
+Windows PowerShell:
 
 ```powershell
 python -m venv .venv
@@ -59,7 +64,6 @@ notepad .env
 BOT_TOKEN=BOTFATHER_TOKENINIZ
 DATABASE_PATH=domain_monitor.db
 CHECK_INTERVAL_SECONDS=300
-REQUEST_TIMEOUT_SECONDS=15
 ```
 
 Botu çalıştırın:
@@ -83,13 +87,10 @@ BOT_TOKEN=BOTFATHER_TOKENINIZ
 
 ```env
 CHECK_INTERVAL_SECONDS=300
-REQUEST_TIMEOUT_SECONDS=15
 DATABASE_PATH=/data/domain_monitor.db
 ```
 
-Kalıcı SQLite verisi için Railway'de volume ekleyin ve `/data` yoluna mount edin. Volume kullanmazsanız Railway deploy/restart sonrası SQLite dosyası kaybolabilir.
-
-Railway'de tek instance/replica çalıştırın. Birden fazla instance aynı domainleri kontrol ederse çift bildirim gönderebilir.
+Railway'de volume ekleyip `/data` yoluna mount edin. Dockerfile varsayılan olarak veritabanını `/data/domain_monitor.db` konumunda tutar.
 
 ## Komutlar
 
@@ -99,7 +100,7 @@ Botu başlatır ve mevcut sohbeti kayıt eder.
 
 ### `/add domain.com`
 
-Domaini izleme listesine ekler.
+Domaini BTK/ESB takip listesine ekler ve hemen ilk sorguyu yapar.
 
 ```text
 /add example.com
@@ -115,7 +116,7 @@ Bu kayıt `example.com` olarak saklanır.
 
 ### `/remove domain.com`
 
-Domaini izleme listesinden çıkarır.
+Domaini takip listesinden çıkarır.
 
 ```text
 /remove example.com
@@ -123,11 +124,11 @@ Domaini izleme listesinden çıkarır.
 
 ### `/list`
 
-Kayıtlı domainleri, son durumlarını ve son kontrol zamanını listeler.
+Kayıtlı domainleri, son BTK/ESB durumlarını ve son kontrol zamanını listeler.
 
 ### `/check domain.com`
 
-Domaini hemen kontrol eder. Bu komut domaini listeye eklemez.
+Domain için hemen BTK/ESB sorgusu yapar. Bu komut domaini listeye eklemez.
 
 ```text
 /check example.com
@@ -145,9 +146,9 @@ Saklanan bilgiler:
 
 - Telegram chat ID
 - Domain
-- Son durum: `UNKNOWN`, `UP`, `DOWN`
+- Son durum: `UNKNOWN`, `BLOCKED`, `CLEAR`
 - Son kontrol zamanı
-- Son hata detayı
+- Son sorgu detayı/hata metni
 
 `.gitignore` içinde veritabanı ve `.env` dışlanmıştır. Bunları GitHub'a yüklemeyin.
 

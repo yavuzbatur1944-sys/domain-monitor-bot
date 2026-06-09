@@ -2,13 +2,13 @@ import logging
 import os
 import re
 import sqlite3
+import asyncio
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
 
-import httpx
 from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
@@ -23,10 +23,9 @@ else:
 BASE_DIR = Path(__file__).resolve().parent
 DATABASE_PATH = Path(os.getenv("DATABASE_PATH", BASE_DIR / "domain_monitor.db"))
 CHECK_INTERVAL_SECONDS = int(os.getenv("CHECK_INTERVAL_SECONDS", "300"))
-REQUEST_TIMEOUT_SECONDS = float(os.getenv("REQUEST_TIMEOUT_SECONDS", "15"))
 
-STATUS_UP = "UP"
-STATUS_DOWN = "DOWN"
+STATUS_BLOCKED = "BLOCKED"
+STATUS_CLEAR = "CLEAR"
 STATUS_UNKNOWN = "UNKNOWN"
 
 DOMAIN_RE = re.compile(
@@ -38,7 +37,6 @@ logging.basicConfig(
     level=logging.INFO,
 )
 logger = logging.getLogger(__name__)
-logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
 @contextmanager
@@ -193,42 +191,63 @@ def update_domain_status(domain_id: int, status: str, error: str | None) -> None
 
 
 def status_icon(status: str) -> str:
-    if status == STATUS_UP:
-        return "OK"
-    if status == STATUS_DOWN:
-        return "ENGEL/ERISIM YOK"
+    if status == STATUS_BLOCKED:
+        return "ENGEL VAR"
+    if status == STATUS_CLEAR:
+        return "ENGEL YOK"
     return "BILINMIYOR"
 
 
-async def fetch_domain_once(url: str) -> tuple[bool, str | None]:
-    timeout = httpx.Timeout(REQUEST_TIMEOUT_SECONDS)
-    headers = {"User-Agent": "DomainMonitorBot/1.0"}
-    async with httpx.AsyncClient(timeout=timeout, follow_redirects=True, headers=headers) as client:
-        response = await client.get(url)
-        if response.status_code == 451:
-            return False, "HTTP 451 - yasal erişim engeli olabilir"
-        if 200 <= response.status_code < 500:
-            return True, f"HTTP {response.status_code}"
-        return False, f"HTTP {response.status_code}"
+def parse_btk_result(result_text: str) -> tuple[str, str]:
+    normalized = " ".join(result_text.casefold().split())
+
+    no_block_phrases = (
+        "uygulanan bir karar bulunamadı",
+        "uygulanan bir karar bulunamadi",
+        "uygulanmış bir karar bulunamadı",
+        "uygulanmis bir karar bulunamadi",
+        "herhangi bir karar bulunamadı",
+        "herhangi bir karar bulunamadi",
+    )
+    if any(phrase in normalized for phrase in no_block_phrases):
+        return STATUS_CLEAR, result_text.strip()
+
+    blocked_phrases = (
+        "erişime engellenmiştir",
+        "erisime engellenmistir",
+        "erişimin engellenmesi",
+        "erisimin engellenmesi",
+        "idari tedbir",
+        "koruma tedbiri",
+        "sulh ceza hakimliği",
+        "sulh ceza hakimligi",
+        "mahkeme kararı",
+        "mahkeme karari",
+    )
+    if any(phrase in normalized for phrase in blocked_phrases):
+        return STATUS_BLOCKED, result_text.strip()
+
+    return STATUS_UNKNOWN, result_text.strip() or "BTK sonucu yorumlanamadı."
+
+
+def query_btk_sync(domain: str) -> str:
+    try:
+        from BTKSorgu import BTKSorgu
+    except ImportError as error:
+        raise RuntimeError('BTK sorgusu için "BTKSorgu" paketi kurulmalı. requirements.txt ile kurun.') from error
+
+    result = BTKSorgu(domain)
+    return str(result)
 
 
 async def check_domain(domain: str) -> tuple[str, str | None]:
-    errors: list[str] = []
-    for scheme in ("https", "http"):
-        url = f"{scheme}://{domain}"
-        try:
-            is_reachable, detail = await fetch_domain_once(url)
-            if is_reachable:
-                return STATUS_UP, detail
-            errors.append(f"{scheme}: {detail}")
-        except httpx.TimeoutException:
-            errors.append(f"{scheme}: timeout")
-        except httpx.ConnectError as error:
-            errors.append(f"{scheme}: bağlantı hatası ({error.__class__.__name__})")
-        except httpx.HTTPError as error:
-            errors.append(f"{scheme}: HTTP hata ({error.__class__.__name__})")
-
-    return STATUS_DOWN, "; ".join(errors)[:500]
+    try:
+        result_text = await asyncio.to_thread(query_btk_sync, domain)
+        status, detail = parse_btk_result(result_text)
+        return status, detail[:1000]
+    except Exception as error:
+        logger.exception("BTK query failed for %s", domain)
+        return STATUS_UNKNOWN, str(error)[:500]
 
 
 def format_domain_result(domain: str, status: str, detail: str | None) -> str:
@@ -339,7 +358,7 @@ async def list_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     for row in rows:
         checked = row["last_checked_at"] or "henüz kontrol edilmedi"
         line = f"- {row['domain']}: {status_icon(row['status'])} ({checked})"
-        if row["last_error"] and row["status"] == STATUS_DOWN:
+        if row["last_error"] and row["status"] != STATUS_CLEAR:
             line += f"\n  Detay: {row['last_error']}"
         lines.append(line)
 
@@ -381,18 +400,18 @@ async def check_all_domains(context: ContextTypes.DEFAULT_TYPE) -> None:
         try:
             new_status, detail = await check_domain(domain)
         except Exception as error:
-            logger.exception("Domain check failed for %s", domain)
-            new_status = STATUS_DOWN
+            logger.exception("BTK query failed for %s", domain)
+            new_status = STATUS_UNKNOWN
             detail = str(error)[:500]
 
         update_domain_status(domain_id, new_status, detail)
 
-        if previous_status != STATUS_UNKNOWN and previous_status != new_status:
+        if previous_status != STATUS_UNKNOWN and new_status != STATUS_UNKNOWN and previous_status != new_status:
             try:
                 await context.bot.send_message(
                     chat_id=chat_id,
                     text=(
-                        "Domain durum değişikliği!\n\n"
+                        "BTK/ESB erişim engeli durum değişikliği!\n\n"
                         f"{domain}\n"
                         f"Eski durum: {status_icon(previous_status)}\n"
                         f"Yeni durum: {status_icon(new_status)}\n"

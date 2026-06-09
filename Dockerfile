@@ -6,6 +6,10 @@ ENV DATABASE_PATH=/data/domain_monitor.db
 
 WORKDIR /app
 
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends tesseract-ocr ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
