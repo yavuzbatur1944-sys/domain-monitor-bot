@@ -2,7 +2,7 @@
 
 Bu bot, kayıtlı domainler için BTK/ESB erişim engeli durumunu takip eder. Domain için erişim engeli kararı görülürse veya daha önce görülen engel kalkarsa Telegram üzerinden bildirim gönderir.
 
-Varsayılan kontrol aralığı 5 dakikadır.
+Varsayılan kontrol aralığı 15 dakikadır.
 
 ## Özellikler
 
@@ -13,10 +13,11 @@ Varsayılan kontrol aralığı 5 dakikadır.
 - `/check domain.com`
 - `/help`
 - Domainleri SQLite veritabanında saklar.
-- Kayıtlı domainleri her 5 dakikada bir BTK sorgusu ile kontrol eder.
+- Kayıtlı domainleri her 15 dakikada bir BTK sorgusu ile kontrol eder.
 - Sadece durum değiştiğinde bildirim gönderir.
 - Komut handlerları `python-telegram-bot` v20+ ile uyumlu şekilde `block=False` çalışır.
 - Uzun süren BTK/OCR sorguları komut cevaplarını kilitlemez.
+- BTK sorgusu başarısız olursa varsayılan olarak 2 kez yeniden dener.
 - `BOT_TOKEN` önce Railway environment variable üzerinden, yoksa `.env` dosyasından okunur.
 - Railway üzerinde Dockerfile ile çalışmaya hazırdır.
 
@@ -26,9 +27,9 @@ Bot domain erişilebilirliğini HTTP ile test etmez. Bunun yerine BTK sorgu sonu
 
 - `ENGEL VAR`: BTK sorgusunda erişim engeli/tedbir/mahkeme kararı benzeri karar metni bulundu.
 - `ENGEL YOK`: BTK sorgusunda uygulanmış karar bulunmadı.
-- `BILINMIYOR`: BTK sorgusu yapılamadı veya sonuç yorumlanamadı.
+- `BİLİNMİYOR`: BTK sorgusu yapılamadı, zaman aşımına uğradı veya sonuç yorumlanamadı.
 
-Bildirim yalnızca `ENGEL VAR` ile `ENGEL YOK` arasında durum değişirse gönderilir. `BILINMIYOR` geçici sorgu hatası kabul edilir ve engel kalktı/engel geldi bildirimi üretmez.
+Bildirim yalnızca `ENGEL VAR` ile `ENGEL YOK` arasında durum değişirse gönderilir. `BİLİNMİYOR` geçici sorgu hatası kabul edilir ve engel kalktı/engel geldi bildirimi üretmez.
 
 ## Önemli Notlar
 
@@ -42,8 +43,9 @@ Bildirim yalnızca `ENGEL VAR` ile `ENGEL YOK` arasında durum değişirse gönd
 ```env
 BOT_TOKEN=BOTFATHER_TOKENINIZ
 DATABASE_PATH=domain_monitor.db
-CHECK_INTERVAL_SECONDS=300
+CHECK_INTERVAL_SECONDS=900
 BTK_QUERY_TIMEOUT_SECONDS=300
+BTK_MAX_RETRIES=2
 MAX_CONCURRENT_CHECKS=3
 ```
 
@@ -87,8 +89,9 @@ Railway için önerilen değişkenler:
 ```env
 BOT_TOKEN=BOTFATHER_TOKENINIZ
 DATABASE_PATH=/data/domain_monitor.db
-CHECK_INTERVAL_SECONDS=300
+CHECK_INTERVAL_SECONDS=900
 BTK_QUERY_TIMEOUT_SECONDS=300
+BTK_MAX_RETRIES=2
 MAX_CONCURRENT_CHECKS=3
 ```
 

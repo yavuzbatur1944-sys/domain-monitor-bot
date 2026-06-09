@@ -22,8 +22,9 @@ else:
 
 BASE_DIR = Path(__file__).resolve().parent
 DATABASE_PATH = Path(os.getenv("DATABASE_PATH", BASE_DIR / "domain_monitor.db"))
-CHECK_INTERVAL_SECONDS = int(os.getenv("CHECK_INTERVAL_SECONDS", "300"))
+CHECK_INTERVAL_SECONDS = int(os.getenv("CHECK_INTERVAL_SECONDS", "900"))
 BTK_QUERY_TIMEOUT_SECONDS = int(os.getenv("BTK_QUERY_TIMEOUT_SECONDS", "300"))
+BTK_MAX_RETRIES = int(os.getenv("BTK_MAX_RETRIES", "2"))
 MAX_CONCURRENT_CHECKS = int(os.getenv("MAX_CONCURRENT_CHECKS", "3"))
 
 STATUS_BLOCKED = "BLOCKED"
@@ -199,7 +200,7 @@ def status_label(status: str) -> str:
         return "ENGEL VAR"
     if status == STATUS_CLEAR:
         return "ENGEL YOK"
-    return "BILINMIYOR"
+    return "BİLİNMİYOR"
 
 
 def parse_btk_result(result_text: str) -> tuple[str, str]:
@@ -245,19 +246,37 @@ def query_btk_sync(domain: str) -> str:
 
 
 async def check_domain(domain: str) -> tuple[str, str | None]:
-    try:
-        result_text = await asyncio.wait_for(
-            asyncio.to_thread(query_btk_sync, domain),
-            timeout=BTK_QUERY_TIMEOUT_SECONDS,
-        )
-        status, detail = parse_btk_result(result_text)
-        return status, detail[:1000]
-    except asyncio.TimeoutError:
-        logger.warning("BTK query timeout for %s", domain)
-        return STATUS_UNKNOWN, "BTK sorgusu zaman aşımına uğradı, bir sonraki 5 dakikalık kontrolde tekrar denenecek."
-    except Exception as error:
-        logger.exception("BTK query failed for %s", domain)
-        return STATUS_UNKNOWN, str(error)[:500]
+    total_attempts = BTK_MAX_RETRIES + 1
+    last_error: str | None = None
+
+    for attempt in range(1, total_attempts + 1):
+        try:
+            logger.info("BTK query attempt %s/%s for %s", attempt, total_attempts, domain)
+            result_text = await asyncio.wait_for(
+                asyncio.to_thread(query_btk_sync, domain),
+                timeout=BTK_QUERY_TIMEOUT_SECONDS,
+            )
+            status, detail = parse_btk_result(result_text)
+            return status, detail[:1000]
+        except asyncio.TimeoutError:
+            last_error = (
+                "BTK sorgusu zaman aşımına uğradı, bir sonraki 15 dakikalık kontrolde tekrar denenecek."
+            )
+            logger.warning(
+                "BTK query timeout for %s on attempt %s/%s after %s seconds",
+                domain,
+                attempt,
+                total_attempts,
+                BTK_QUERY_TIMEOUT_SECONDS,
+            )
+        except Exception as error:
+            last_error = str(error)[:500]
+            logger.exception("BTK query failed for %s on attempt %s/%s", domain, attempt, total_attempts)
+
+        if attempt < total_attempts:
+            await asyncio.sleep(2)
+
+    return STATUS_UNKNOWN, last_error or "BTK sorgusu tamamlanamadı."
 
 
 def format_domain_result(domain: str, status: str, detail: str | None) -> str:
@@ -313,7 +332,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "BTK/ESB Domain Monitor Bot aktif.\n\n"
         "Domain eklemek için:\n"
         "/add example.com\n\n"
-        "Kayıtlı domainler her 5 dakikada bir BTK/ESB sorgusu ile kontrol edilir. "
+        "Kayıtlı domainler her 15 dakikada bir BTK/ESB sorgusu ile kontrol edilir. "
         "Engel gelirse veya kalkarsa bu sohbete bildirim gönderirim.\n\n"
         "/help ile komutları görebilirsin."
     )
